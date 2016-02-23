@@ -78,6 +78,7 @@ struct OpenGLGlyphCacheChunk
     WORD mnFirstGlyph;
     int mnGlyphCount;
     std::vector<Rectangle> maLocation;
+    std::vector<int> maLeftOverhangs;
     std::shared_ptr<OpenGLTexture> mpTexture;
     int mnAscent;
     int mnHeight;
@@ -335,10 +336,12 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
         }
     }
 
-    std::ostringstream sLine;
-    for (int i = 0; i < nCount; i++)
-        sLine << aABC[i].abcA << ":" << aABC[i].abcB << ":" << aABC[i].abcC << " ";
-    SAL_INFO("vcl.gdi.opengl", "ABC widths: " << sLine.str());
+    {
+        std::ostringstream sLine;
+        for (int i = 0; i < nCount; i++)
+            sLine << aABC[i].abcA << ":" << aABC[i].abcB << ":" << aABC[i].abcC << " ";
+        SAL_INFO("vcl.gdi.opengl", "ABC widths: " << sLine.str());
+    }
 
     TEXTMETRICW aTextMetric;
     if (!GetTextMetricsW(hDC, &aTextMetric))
@@ -350,23 +353,6 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
     }
     aChunk.mnAscent = aTextMetric.tmAscent;
     aChunk.mnHeight = aTextMetric.tmHeight;
-
-    // Try hard to avoid overlap as we want to be able to use
-    // individual rectangles for each glyph. The ABC widths don't
-    // take anti-aliasing into consideration. Let's hope that leaving
-    // "extra" space between glyphs will help.
-    std::vector<int> aDX(nCount);
-    int totWidth = 0;
-    for (int i = 0; i < nCount; i++)
-    {
-        aDX[i] = aABC[i].abcB + std::abs(aABC[i].abcC);
-        if (i == 0)
-            aDX[0] += std::abs(aABC[0].abcA);
-        if (i < nCount-1)
-            aDX[i] += std::abs(aABC[i+1].abcA);
-        aDX[i] += aChunk.getExtraSpace();
-        totWidth += aDX[i];
-    }
 
     LOGFONTW aLogfont;
     if (!GetObjectW(rLayout.mhFont, sizeof(aLogfont), &aLogfont))
@@ -387,17 +373,48 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
         return false;
     }
 
-    SAL_INFO("vcl.gdi.opengl", OUString(sFaceName, nFaceNameLen) <<
-             ": Escapement=" << aLogfont.lfEscapement <<
-             " Orientation=" << aLogfont.lfOrientation <<
-             " Ascent=" << aTextMetric.tmAscent <<
-             " InternalLeading=" << aTextMetric.tmInternalLeading <<
-             " Size=(" << aSize.cx << "," << aSize.cy << ") totWidth=" << totWidth);
-
     if (SelectObject(hDC, hOrigFont) == NULL)
         SAL_WARN("vcl.gdi", "SelectObject failed: " << WindowsErrorString(GetLastError()));
     if (!DeleteDC(hDC))
         SAL_WARN("vcl.gdi", "DeleteDC failed: " << WindowsErrorString(GetLastError()));
+
+    // Offset between glyph positions
+    aChunk.maLeftOverhangs.resize(nCount);
+
+    // Try hard to avoid overlap as we want to be able to use
+    // individual rectangles for each glyph. The ABC widths don't
+    // take anti-aliasing into consideration. Let's hope that leaving
+    // "extra" space between glyphs will help.
+    std::vector<int> aDX(nCount);   // offsets between glyphs
+    std::vector<int> aEnds(nCount); // end of each glyph box
+    int totWidth = 0;
+    int lastOverhang = 0;
+    int lastBlackWidth = 0;
+    for (int i = 0; i < nCount; i++)
+    {
+        int overhang = aABC[i].abcA;
+        int blackWidth = aABC[i].abcB; // width of non-AA pixels
+        aChunk.maLeftOverhangs[i] = overhang;
+
+        if (i > 0)
+            aDX[i - 1] += aChunk.getExtraSpace() + lastOverhang - overhang + lastBlackWidth;
+
+        totWidth += blackWidth + aChunk.getExtraSpace();
+        aEnds[i] = totWidth;
+
+        lastOverhang = overhang;
+        lastBlackWidth = blackWidth;
+        // FIXME: for vertical text - this is completely horked I guess [!]
+        // or does A and C have a different meaning there that is
+        // consistent somehow ?
+    }
+
+    SAL_INFO("vcl.gdi.opengl", OUString(sFaceName, nFaceNameLen) <<
+        ": Escapement=" << aLogfont.lfEscapement <<
+        " Orientation=" << aLogfont.lfOrientation <<
+        " Ascent=" << aTextMetric.tmAscent <<
+        " InternalLeading=" << aTextMetric.tmInternalLeading <<
+        " Size=(" << aSize.cx << "," << aSize.cy << ") totWidth=" << totWidth);
 
     // Leave extra space also at top and bottom
     int nBitmapWidth, nBitmapHeight;
@@ -417,6 +434,28 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
     // Don't even try to handle non-horizontal text
     if (aChunk.mbVertical || aLogfont.lfEscapement != 0)
         return false;
+
+    aChunk.maLocation.resize(nCount);
+    UINT nPos = 0;
+    for (int i = 0; i < nCount; i++)
+    {
+        // FIXME: really I don't get why 'vertical' make sany difference [!] what does it mean !?
+        if (aChunk.mbVertical)
+        {
+            aChunk.maLocation[i].Left() = 0;
+            aChunk.maLocation[i].Right() = nBitmapWidth;
+            aChunk.maLocation[i].Top() = nPos;
+            aChunk.maLocation[i].Bottom() = nPos + aDX[i] + aChunk.maLeftOverhangs[i];
+        }
+        else
+        {
+            aChunk.maLocation[i].Left() = nPos;
+            aChunk.maLocation[i].Right() = aEnds[i];
+            aChunk.maLocation[i].Top() = 0;
+            aChunk.maLocation[i].Bottom() = aSize.cy + aChunk.getExtraSpace();
+        }
+        nPos = aEnds[i];
+    }
 
     OpenGLCompatibleDC aDC(rGraphics, 0, 0, nBitmapWidth, nBitmapHeight);
 
@@ -448,10 +487,12 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
 
     aDC.fill(MAKE_SALCOLOR(0xff, 0xff, 0xff));
 
-    int nY =  aChunk.getExtraOffset();
-    int nX =  nY;
+    int nY = aChunk.getExtraOffset();
+    int nX = nY;
     if (aChunk.mbVertical)
         nX += aDX[0];
+    else
+        nX -= aABC[0].abcA;
     if (!ExtTextOutW(aDC.getCompatibleHDC(),
                      nX, nY,
                      bRealGlyphIndices ? ETO_GLYPH_INDEX : 0,
@@ -466,28 +507,6 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
         return false;
     }
 
-    aChunk.maLocation.resize(nCount);
-    UINT nPos = 0;
-    for (int i = 0; i < nCount; i++)
-    {
-        if (aChunk.mbVertical)
-        {
-            aChunk.maLocation[i].Left() = 0;
-            aChunk.maLocation[i].Right() = nBitmapWidth;
-            aChunk.maLocation[i].Top() = nPos;
-            aChunk.maLocation[i].Bottom() = nPos + aDX[i];
-            nPos = aChunk.maLocation[i].Bottom();
-        }
-        else
-        {
-            aChunk.maLocation[i].Left() = nPos;
-            aChunk.maLocation[i].Right() = nPos + aDX[i];
-            nPos = aChunk.maLocation[i].Right();
-            aChunk.maLocation[i].Top() = 0;
-            aChunk.maLocation[i].Bottom() = aSize.cy + aChunk.getExtraSpace();
-        }
-    }
-
     aChunk.mpTexture = std::unique_ptr<OpenGLTexture>(aDC.getTexture());
 
     maOpenGLGlyphCache.insert(n, aChunk);
@@ -499,6 +518,13 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
 #ifdef SAL_LOG_INFO
     SAL_INFO("vcl.gdi.opengl", "this=" << this << " now: " << maOpenGLGlyphCache);
     DumpGlyphBitmap(aDC.getCompatibleHDC());
+
+    {
+        std::ostringstream sLine;
+        for (int i = 0; i < nCount; i++)
+            sLine << aDX[i] << ":" << aChunk.maLeftOverhangs[i] << " ";
+        SAL_INFO("vcl.gdi.opengl", "DX:offset : " << sLine.str());
+    }
 #endif
 
     return true;
@@ -1465,7 +1491,8 @@ bool SimpleWinLayout::DrawCachedGlyphs(SalGraphics& rGraphics) const
 
         SalTwoRect a2Rects(rChunk.maLocation[n].Left(), rChunk.maLocation[n].Top(),
                            rChunk.maLocation[n].getWidth(), rChunk.maLocation[n].getHeight(),
-                           nAdvance + aPos.X() - rChunk.getExtraOffset(), aPos.Y() - rChunk.mnAscent - rChunk.getExtraOffset(),
+                           nAdvance + aPos.X() - rChunk.getExtraOffset() + rChunk.maLeftOverhangs[n],
+                           aPos.Y() - rChunk.mnAscent - rChunk.getExtraOffset(),
                            rChunk.maLocation[n].getWidth(), rChunk.maLocation[n].getHeight()); // ???
         pImpl->DrawMask(*rChunk.mpTexture, salColor, a2Rects);
 
@@ -2987,7 +3014,7 @@ bool UniscribeLayout::DrawCachedGlyphsUsingTextures(SalGraphics& rGraphics) cons
             {
                 SalTwoRect a2Rects(rChunk.maLocation[n].Left(), rChunk.maLocation[n].Top(),
                                    rChunk.maLocation[n].getWidth(), rChunk.maLocation[n].getHeight(),
-                                   aPos.X(), nAdvance + aPos.Y(),
+                                   aPos.X() + rChunk.maLeftOverhangs[n], nAdvance + aPos.Y(),
                                    rChunk.maLocation[n].getWidth(), rChunk.maLocation[n].getHeight()); // ???
                 pImpl->DrawMask(*rChunk.mpTexture, salColor, a2Rects);
             }
@@ -2995,7 +3022,8 @@ bool UniscribeLayout::DrawCachedGlyphsUsingTextures(SalGraphics& rGraphics) cons
             {
                 SalTwoRect a2Rects(rChunk.maLocation[n].Left(), rChunk.maLocation[n].Top(),
                                    rChunk.maLocation[n].getWidth(), rChunk.maLocation[n].getHeight(),
-                                   nAdvance + aPos.X() + mpGlyphOffsets[i].du - rChunk.getExtraOffset(), aPos.Y() + mpGlyphOffsets[i].dv - rChunk.mnAscent - rChunk.getExtraOffset(),
+                                   nAdvance + aPos.X() + mpGlyphOffsets[i].du - rChunk.getExtraOffset() + rChunk.maLeftOverhangs[n],
+                                   aPos.Y() + mpGlyphOffsets[i].dv - rChunk.mnAscent - rChunk.getExtraOffset(),
                                    rChunk.maLocation[n].getWidth(), rChunk.maLocation[n].getHeight()); // ???
                 pImpl->DrawMask(*rChunk.mpTexture, salColor, a2Rects);
             }
