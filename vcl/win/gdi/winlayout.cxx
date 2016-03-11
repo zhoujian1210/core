@@ -38,6 +38,7 @@
 #include <cstdlib>
 
 #include <sal/alloca.h>
+#include <rtl/character.hxx>
 
 #include <algorithm>
 
@@ -425,7 +426,8 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
     {
         // FIXME First convert from UTF16 to utf32
         std::vector<uint32_t> aCodePoints(aGlyphIndices.begin(), aGlyphIndices.end());
-        if (!SUCCEEDED(pTxt->GetFontFace()->GetGlyphIndices(aCodePoints.data(), aCodePoints.size(), aGlyphIndices.data())))
+        aGlyphIndices.resize(aCodePoints.size());
+            if (!SUCCEEDED(pTxt->GetFontFace()->GetGlyphIndices(aCodePoints.data(), aCodePoints.size(), aGlyphIndices.data())))
         {
             pTxt->ReleaseFont();
             return false;
@@ -435,18 +437,22 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
     auto aInkBoxes = pTxt->GetGlyphInkBoxes(aGlyphIndices.data(), aGlyphIndices.data() + nCount);
     for (auto &box : aInkBoxes)
         bounds.Union(box + Point(bounds.Right(), 0));
-    /*
+
     // FIXME Glyphs can (and routinely do in non-Roman scripts) have inkboxes which extend
     //  above and below the font's ascent and descent metrics. iI order to fix this we would
     //  need to make the bitmap based on the actual bounds and calculate an ascent and descent
     //  based on those, but I don't if that would break callers assumptions.
+    DWRITE_FONT_METRICS aFontMetrics;
+    pTxt->GetFontFace()->GetMetrics(&aFontMetrics);
+    aChunk.mnAscent = aFontMetrics.ascent * pTxt->GetEmHeight() / aFontMetrics.designUnitsPerEm;
     aChunk.mnAscent += -bounds.Top();
-    aChunk.mnHeight = bounds.Height();
-    */
+    aChunk.mnHeight = bounds.GetHeight();
+    /*
     DWRITE_FONT_METRICS aFontMetrics;
     pTxt->GetFontFace()->GetMetrics(&aFontMetrics);
     aChunk.mnAscent = aFontMetrics.ascent * pTxt->GetEmHeight() / aFontMetrics.designUnitsPerEm;
     aChunk.mnHeight = aChunk.mnAscent + aFontMetrics.descent * pTxt->GetEmHeight() / aFontMetrics.designUnitsPerEm;
+    */
     aChunk.mbVertical = false;
 
     aChunk.maLeftOverhangs.resize(nCount);
