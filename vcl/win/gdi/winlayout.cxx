@@ -421,7 +421,7 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
     pTxt->BindFont(hDC);
 
     // Fetch the ink boxes and calculate the size of the atlas.
-    Rectangle bounds;
+    Rectangle bounds(0, 0, 0, 0);
     auto aInkBoxes = pTxt->GetGlyphInkBoxes(aGlyphIndices.data(), aGlyphIndices.data() + nCount);
     for (auto &box : aInkBoxes)
         bounds.Union(box + Point(bounds.Right(), 0));
