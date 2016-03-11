@@ -277,7 +277,7 @@ char ColorFor(COLORREF aColor)
     return '0' + (10*(GetRValue(aColor) + GetGValue(aColor) + GetBValue(aColor))) / (0xFF*3);
 }
 
-void DumpGlyphBitmap(HDC hDC)
+void DumpGlyphBitmap(HDC hDC, const OpenGLGlyphCacheChunk& rChunk)
 {
     HBITMAP hBitmap = static_cast<HBITMAP>(GetCurrentObject(hDC, OBJ_BITMAP));
     if (hBitmap == NULL)
@@ -298,7 +298,11 @@ void DumpGlyphBitmap(HDC hDC)
     std::ostringstream sLine("\n", std::ios_base::ate);
     for (long y = 0; y < aBitmap.bmHeight; y++)
     {
-        for (long x = 0; x < std::min(75l, aBitmap.bmWidth); x++)
+        if (y == rChunk.mnAscent)
+            sLine << "-";
+        else
+            sLine << ColorFor(GetPixel(hDC, 0, y));
+        for (long x = 1; x < std::min(75l, aBitmap.bmWidth); x++)
             sLine << ColorFor(GetPixel(hDC, x, y));
         if (y < aBitmap.bmHeight - 1)
             sLine << "\n";
@@ -795,7 +799,7 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
 
 #ifdef SAL_LOG_INFO
     SAL_INFO("vcl.gdi.opengl", "this=" << this << " now: " << maOpenGLGlyphCache);
-    DumpGlyphBitmap(aDC.getCompatibleHDC());
+    DumpGlyphBitmap(aDC.getCompatibleHDC(), aChunk);
 
     {
         std::ostringstream sLine;
