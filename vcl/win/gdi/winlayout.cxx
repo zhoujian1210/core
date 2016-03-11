@@ -542,6 +542,8 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
 
     switch (hr)
     {
+    case S_OK:
+        break;
     case D2DERR_RECREATE_TARGET:
         pTxt->CreateRenderTarget();
         break;
