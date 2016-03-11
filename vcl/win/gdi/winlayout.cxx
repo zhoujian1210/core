@@ -540,7 +540,7 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
         return false;
     }
 
-    D2D1_POINT_2F baseline = { nX, nY + aChunk.mnAscent - bounds.Top() };
+    D2D1_POINT_2F baseline = { nX, nY - bounds.Top() };
     DWRITE_GLYPH_RUN glyphs = {
         pTxt->GetFontFace(),
         pTxt->GetEmHeight(),
