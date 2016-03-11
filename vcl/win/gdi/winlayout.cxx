@@ -449,7 +449,8 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
     DWRITE_FONT_METRICS aFontMetrics;
     pTxt->GetFontFace()->GetMetrics(&aFontMetrics);
     aChunk.mnAscent = aFontMetrics.ascent * pTxt->GetEmHeight() / aFontMetrics.designUnitsPerEm;
-    aChunk.mnAscent += -bounds.Top();
+    // FIXME: Temporarily commented out, this positions glyphs vertically a bit better. But far from correctly.
+    // aChunk.mnAscent += -bounds.Top();
     aChunk.mnHeight = bounds.GetHeight();
     /*
     DWRITE_FONT_METRICS aFontMetrics;
