@@ -521,7 +521,7 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
     if (!SUCCEEDED(pRT->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black), &pBrush)))
         return false;
 
-    D2D1_POINT_2F baseline = { 0.0f, nY };
+    D2D1_POINT_2F baseline = { 0.0f, bounds.Bottom() - nY };
     DWRITE_GLYPH_RUN glyphs = {
         pTxt->GetFontFace(),
         pTxt->GetEmHeight(),
