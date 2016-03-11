@@ -497,7 +497,7 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
         nBitmapHeight = bounds.GetHeight() + aChunk.getExtraSpace();
 
     aChunk.maLocation.resize(nCount);
-    UINT nPos = 0;
+    UINT nPos = aChunk.getExtraOffset();
     for (int i = 0; i < nCount; i++)
     {
         // FIXME: really I don't get why 'vertical' makes any difference [!] what does it mean !?
@@ -528,14 +528,9 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
     aDC.fill(MAKE_SALCOLOR(0xff, 0xff, 0xff));
 
     int nY = aChunk.getExtraOffset();
-    int nX = nY;
-    if (aChunk.mbVertical)
-        nX += aGlyphAdv[0];
-    else
-        nX -= bounds.Left();
+    int nX = aChunk.getExtraOffset();
 
-    bounds.Move(-bounds.Left(), -bounds.Top());
-    pTxt->BindDC(aDC.getCompatibleHDC(), bounds);
+    pTxt->BindDC(aDC.getCompatibleHDC(), Rectangle(0, 0, nBitmapWidth, nBitmapHeight));
     auto pRT = pTxt->GetRenderTarget();
 
     ID2D1SolidColorBrush* pBrush = nullptr;
@@ -545,7 +540,7 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
         return false;
     }
 
-    D2D1_POINT_2F baseline = { 0.0f, bounds.Bottom() - nY };
+    D2D1_POINT_2F baseline = { nX, nY + aChunk.mnAscent - bounds.Top() };
     DWRITE_GLYPH_RUN glyphs = {
         pTxt->GetFontFace(),
         pTxt->GetEmHeight(),
@@ -556,7 +551,6 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
         false,
         0
     };
-
 
     pRT->BeginDraw();
     pRT->DrawGlyphRun(baseline, &glyphs, pBrush);
