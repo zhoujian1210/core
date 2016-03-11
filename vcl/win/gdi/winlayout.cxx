@@ -421,6 +421,16 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
     pTxt->BindFont(hDC);
 
     // Fetch the ink boxes and calculate the size of the atlas.
+    if (!bRealGlyphIndices)
+    {
+        // FIXME First convert from UTF16 to utf32
+        std::vector<uint32_t> aCodePoints(aGlyphIndices.begin(), aGlyphIndices.end());
+        if (!SUCCEEDED(pTxt->GetFontFace()->GetGlyphIndices(aCodePoints.data(), aCodePoints.size(), aGlyphIndices.data())))
+        {
+            pTxt->ReleaseFont();
+            return false;
+        }
+    }
     Rectangle bounds(0, 0, 0, 0);
     auto aInkBoxes = pTxt->GetGlyphInkBoxes(aGlyphIndices.data(), aGlyphIndices.data() + nCount);
     for (auto &box : aInkBoxes)
@@ -519,7 +529,10 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
 
     ID2D1SolidColorBrush* pBrush = nullptr;
     if (!SUCCEEDED(pRT->CreateSolidColorBrush(D2D1::ColorF(D2D1::ColorF::Black), &pBrush)))
+    {
+        pTxt->ReleaseFont();
         return false;
+    }
 
     D2D1_POINT_2F baseline = { 0.0f, bounds.Bottom() - nY };
     DWRITE_GLYPH_RUN glyphs = {
