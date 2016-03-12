@@ -81,7 +81,7 @@ struct OpenGLGlyphCacheChunk
     std::vector<Rectangle> maLocation;
     std::vector<int> maLeftOverhangs;
     std::shared_ptr<OpenGLTexture> mpTexture;
-    int mnAscent;
+    int mnBaselineOffset;
     int mnHeight;
     bool mbVertical;
     bool mbRealGlyphIndices;
@@ -298,7 +298,7 @@ void DumpGlyphBitmap(HDC hDC, const OpenGLGlyphCacheChunk& rChunk)
     std::ostringstream sLine("\n", std::ios_base::ate);
     for (long y = 0; y < aBitmap.bmHeight; y++)
     {
-        if (y == rChunk.mnAscent + rChunk.getExtraOffset())
+        if (y == rChunk.mnBaselineOffset + rChunk.getExtraOffset())
             sLine << "-";
         else
             sLine << ColorFor(GetPixel(hDC, 0, y));
@@ -444,14 +444,14 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
 
     // bounds.Top() is the offset from the baseline at (0,0) to the top of the
     // inkbox.
-    aChunk.mnAscent = -bounds.Top();
+    aChunk.mnBaselineOffset = -bounds.Top();
     aChunk.mnHeight = bounds.getHeight();
     aChunk.mbVertical = false;
     /*
         DWRITE_FONT_METRICS aFontMetrics;
         pTxt->GetFontFace()->GetMetrics(&aFontMetrics);
-        aChunk.mnAscent = aFontMetrics.ascent * pTxt->GetEmHeight() / aFontMetrics.designUnitsPerEm;
-        aChunk.mnHeight = aChunk.mnAscent + aFontMetrics.descent * pTxt->GetEmHeight() / aFontMetrics.designUnitsPerEm;
+        aChunk.mnBaselineOffset = aFontMetrics.ascent * pTxt->GetEmHeight() / aFontMetrics.designUnitsPerEm;
+        aChunk.mnHeight = aChunk.mnBaselineOffset + aFontMetrics.descent * pTxt->GetEmHeight() / aFontMetrics.designUnitsPerEm;
     */
 
 
@@ -524,7 +524,7 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
         return false;
     }
 
-    D2D1_POINT_2F baseline = { aChunk.getExtraOffset(), aChunk.getExtraOffset() + aChunk.mnAscent };
+    D2D1_POINT_2F baseline = { aChunk.getExtraOffset(), aChunk.getExtraOffset() + aChunk.mnBaselineOffset };
     DWRITE_GLYPH_RUN glyphs = {
         pTxt->GetFontFace(),
         pTxt->GetEmHeight(),
@@ -612,7 +612,7 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
         DeleteDC(hDC);
         return false;
     }
-    aChunk.mnAscent = aTextMetric.tmAscent;
+    aChunk.mnBaselineOffset = aTextMetric.tmAscent;
     aChunk.mnHeight = aTextMetric.tmHeight;
 
     LOGFONTW aLogfont;
@@ -1753,7 +1753,7 @@ bool SimpleWinLayout::DrawCachedGlyphs(SalGraphics& rGraphics) const
         SalTwoRect a2Rects(rChunk.maLocation[n].Left(), rChunk.maLocation[n].Top(),
                            rChunk.maLocation[n].getWidth(), rChunk.maLocation[n].getHeight(),
                            nAdvance + aPos.X() - rChunk.getExtraOffset() + rChunk.maLeftOverhangs[n],
-                           aPos.Y() - rChunk.mnAscent - rChunk.getExtraOffset(),
+                           aPos.Y() - rChunk.mnBaselineOffset - rChunk.getExtraOffset(),
                            rChunk.maLocation[n].getWidth(), rChunk.maLocation[n].getHeight()); // ???
         pImpl->DrawMask(*rChunk.mpTexture, salColor, a2Rects);
 
@@ -3284,7 +3284,7 @@ bool UniscribeLayout::DrawCachedGlyphsUsingTextures(SalGraphics& rGraphics) cons
                 SalTwoRect a2Rects(rChunk.maLocation[n].Left(), rChunk.maLocation[n].Top(),
                                    rChunk.maLocation[n].getWidth(), rChunk.maLocation[n].getHeight(),
                                    nAdvance + aPos.X() + mpGlyphOffsets[i].du - rChunk.getExtraOffset() + rChunk.maLeftOverhangs[n],
-                                   aPos.Y() + mpGlyphOffsets[i].dv - rChunk.mnAscent - rChunk.getExtraOffset(),
+                                   aPos.Y() + mpGlyphOffsets[i].dv - rChunk.mnBaselineOffset - rChunk.getExtraOffset(),
                                    rChunk.maLocation[n].getWidth(), rChunk.maLocation[n].getHeight()); // ???
                 pImpl->DrawMask(*rChunk.mpTexture, salColor, a2Rects);
             }
