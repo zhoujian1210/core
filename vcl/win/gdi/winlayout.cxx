@@ -442,22 +442,10 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
     for (auto &box : aInkBoxes)
         bounds.Union(box + Point(bounds.Right(), 0));
 
-    // FIXME Glyphs can (and routinely do in non-Roman scripts) have inkboxes which extend
-    //  above and below the font's ascent and descent metrics. iI order to fix this we would
-    //  need to make the bitmap based on the actual bounds and calculate an ascent and descent
-    //  based on those, but I don't if that would break callers assumptions.
-    DWRITE_FONT_METRICS aFontMetrics;
-    pTxt->GetFontFace()->GetMetrics(&aFontMetrics);
-    aChunk.mnAscent = aFontMetrics.ascent * pTxt->GetEmHeight() / aFontMetrics.designUnitsPerEm;
-    // FIXME: Temporarily commented out, this positions glyphs vertically a bit better. But far from correctly.
-    // aChunk.mnAscent += -bounds.Top();
+    // bounds.Top() is the offset from the baseline at (0,0) to the top of the
+    // inkbox.
+    aChunk.mnAscent = -bounds.Top() + 1;
     aChunk.mnHeight = bounds.GetHeight();
-    /*
-    DWRITE_FONT_METRICS aFontMetrics;
-    pTxt->GetFontFace()->GetMetrics(&aFontMetrics);
-    aChunk.mnAscent = aFontMetrics.ascent * pTxt->GetEmHeight() / aFontMetrics.designUnitsPerEm;
-    aChunk.mnHeight = aChunk.mnAscent + aFontMetrics.descent * pTxt->GetEmHeight() / aFontMetrics.designUnitsPerEm;
-    */
     aChunk.mbVertical = false;
 
     aChunk.maLeftOverhangs.resize(nCount);
@@ -527,9 +515,6 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
 
     aDC.fill(MAKE_SALCOLOR(0xff, 0xff, 0xff));
 
-    int nY = aChunk.getExtraOffset();
-    int nX = aChunk.getExtraOffset();
-
     pTxt->BindDC(aDC.getCompatibleHDC(), Rectangle(0, 0, nBitmapWidth, nBitmapHeight));
     auto pRT = pTxt->GetRenderTarget();
 
@@ -540,7 +525,7 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
         return false;
     }
 
-    D2D1_POINT_2F baseline = { nX, nY - bounds.Top() };
+    D2D1_POINT_2F baseline = { aChunk.getExtraOffset(), aChunk.getExtraOffset() + aChunk.mnAscent };
     DWRITE_GLYPH_RUN glyphs = {
         pTxt->GetFontFace(),
         pTxt->GetEmHeight(),
@@ -4119,7 +4104,10 @@ bool D2DWriteTextOutRenderer::ReleaseFont()
     return true;
 }
 
-
+// GetGlyphInkBoxes
+// The inkboxes returned have their origin on the baseline, to a -ve value
+// of Top() means the glyph extends abs(Top()) many pixels above the
+// baseline, and +ve means the ink starts that many pixels below.
 std::vector<Rectangle> D2DWriteTextOutRenderer::GetGlyphInkBoxes(uint16_t * pGid, uint16_t * pGidEnd) const
 {
     Rectangle   aExtent;
