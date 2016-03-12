@@ -298,7 +298,7 @@ void DumpGlyphBitmap(HDC hDC, const OpenGLGlyphCacheChunk& rChunk)
     std::ostringstream sLine("\n", std::ios_base::ate);
     for (long y = 0; y < aBitmap.bmHeight; y++)
     {
-        if (y == rChunk.mnAscent)
+        if (y == rChunk.mnAscent + rChunk.getExtraOffset())
             sLine << "-";
         else
             sLine << ColorFor(GetPixel(hDC, 0, y));
@@ -444,9 +444,16 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
 
     // bounds.Top() is the offset from the baseline at (0,0) to the top of the
     // inkbox.
-    aChunk.mnAscent = -bounds.Top() + 1;
-    aChunk.mnHeight = bounds.GetHeight();
+    aChunk.mnAscent = -bounds.Top();
+    aChunk.mnHeight = bounds.getHeight();
     aChunk.mbVertical = false;
+    /*
+        DWRITE_FONT_METRICS aFontMetrics;
+        pTxt->GetFontFace()->GetMetrics(&aFontMetrics);
+        aChunk.mnAscent = aFontMetrics.ascent * pTxt->GetEmHeight() / aFontMetrics.designUnitsPerEm;
+        aChunk.mnHeight = aChunk.mnAscent + aFontMetrics.descent * pTxt->GetEmHeight() / aFontMetrics.designUnitsPerEm;
+    */
+
 
     aChunk.maLeftOverhangs.resize(nCount);
     aChunk.maLocation.resize(nCount);
@@ -458,13 +465,11 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
     std::vector<float> aGlyphAdv(nCount);   // offsets between glyphs
     std::vector<DWRITE_GLYPH_OFFSET> aGlyphOffset(nCount, DWRITE_GLYPH_OFFSET{0.0f,0.0f});
     std::vector<int> aEnds(nCount); // end of each glyph box
-    int lastOverhang = 0;
-    int lastBlackWidth = 0;
     float totWidth = 0;
     for (int i = 0; i < nCount; ++i)
     {
         int overhang = aInkBoxes[i].Left();
-        int blackWidth = aInkBoxes[i].GetWidth(); // width of non-AA pixels
+        int blackWidth = aInkBoxes[i].getWidth(); // width of non-AA pixels
         aChunk.maLeftOverhangs[i] = overhang;
 
         aGlyphAdv[i] = blackWidth + aChunk.getExtraSpace();
@@ -472,20 +477,14 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
 
         totWidth += aGlyphAdv[i];
         aEnds[i] = totWidth;
-
-        lastOverhang = overhang;
-        lastBlackWidth = blackWidth;
-        // FIXME: for vertical text - this is completely horked I guess [!]
-        // or does A and C have a different meaning there that is
-        // consistent somehow ?
     }
 
     // Leave extra space also at top and bottom
     int nBitmapWidth = totWidth,
-        nBitmapHeight = bounds.GetHeight() + aChunk.getExtraSpace();
+        nBitmapHeight = bounds.getHeight() + aChunk.getExtraSpace();
 
     aChunk.maLocation.resize(nCount);
-    UINT nPos = aChunk.getExtraOffset();
+    UINT nPos = 0;
     for (int i = 0; i < nCount; i++)
     {
         // FIXME: really I don't get why 'vertical' makes any difference [!] what does it mean !?
@@ -501,7 +500,7 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
             aChunk.maLocation[i].Left() = nPos;
             aChunk.maLocation[i].Right() = aEnds[i];
             aChunk.maLocation[i].Top() = 0;
-            aChunk.maLocation[i].Bottom() = bounds.GetHeight() + aChunk.getExtraSpace();
+            aChunk.maLocation[i].Bottom() = bounds.getHeight() + aChunk.getExtraSpace();
         }
         nPos = aEnds[i];
     }
@@ -4118,24 +4117,26 @@ std::vector<Rectangle> D2DWriteTextOutRenderer::GetGlyphInkBoxes(uint16_t * pGid
     DWRITE_FONT_METRICS aFontMetrics;
     mpFontFace->GetMetrics(&aFontMetrics);
 
-    std::unique_ptr<DWRITE_GLYPH_METRICS> metrics(new DWRITE_GLYPH_METRICS[nGlyphs]);
-    if (!SUCCEEDED(mpFontFace->GetDesignGlyphMetrics(pGid, nGlyphs, metrics.get(), false)))
+    std::vector<DWRITE_GLYPH_METRICS> metrics(nGlyphs);
+    if (!SUCCEEDED(mpFontFace->GetDesignGlyphMetrics(pGid, nGlyphs, metrics.data(), false)))
         return std::vector<Rectangle>();
 
     std::vector<Rectangle> aOut(nGlyphs);
     auto pOut = aOut.begin();
-    for (auto m = metrics.get(); nGlyphs; --nGlyphs, ++m, ++pOut)
+    for (auto &m : metrics)
     {
-        const long left  = m->leftSideBearing,
-                   top   = m->topSideBearing - m->verticalOriginY,
-                   right = m->advanceWidth - m->rightSideBearing,
-                   bottom = INT32(m->advanceHeight) - m->verticalOriginY - m->bottomSideBearing;
+        const long left  = m.leftSideBearing,
+                   top   = m.topSideBearing - m.verticalOriginY,
+                   right = m.advanceWidth - m.rightSideBearing,
+                   bottom = INT32(m.advanceHeight) - m.verticalOriginY - m.bottomSideBearing;
 
         // Scale to screen space.
-        pOut->Left()   =     std::lround(left * mlfEmHeight / aFontMetrics.designUnitsPerEm);
-        pOut->Top()    =     std::lround(top * mlfEmHeight / aFontMetrics.designUnitsPerEm);
-        pOut->Right()  = 1 + std::lround(right * mlfEmHeight / aFontMetrics.designUnitsPerEm);
-        pOut->Bottom() = 1 + std::lround(bottom * mlfEmHeight / aFontMetrics.designUnitsPerEm);
+        pOut->Left()   = std::lround(left * mlfEmHeight / aFontMetrics.designUnitsPerEm);
+        pOut->Top()    = std::lround(top * mlfEmHeight / aFontMetrics.designUnitsPerEm);
+        pOut->Right()  = std::lround(right * mlfEmHeight / aFontMetrics.designUnitsPerEm);
+        pOut->Bottom() = std::lround(bottom * mlfEmHeight / aFontMetrics.designUnitsPerEm);
+
+        ++pOut;
     }
 
     return aOut;
