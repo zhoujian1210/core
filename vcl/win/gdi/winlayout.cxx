@@ -161,17 +161,9 @@ public:
 
     virtual ~TextOutRenderer() = default;
 
-
     virtual bool operator ()(WinLayout const &rLayout, HDC hDC,
         const Rectangle* pRectToErase,
         Point* pPos, int* pGetNextGlypInfo) = 0;
-
-    //virtual bool BindFont(HDC hDC) = 0;
-    //virtual bool ReleaseFont() = 0;
-
-    //virtual std::unique_ptr<Rectangle> GetGlyphInkBoxes(uint16_t * pGid, uint16_t * pGidEnd) const = 0;
-    //virtual bool DrawGlyphs(const Point & origin, uint16_t * pGid, uint16_t * pGidEnd,
-    //                        float * pAdvances, Point * pOffsets) = 0;
 };
 
 class ExTextOutRenderer : public TextOutRenderer
@@ -186,13 +178,6 @@ public:
     bool operator ()(WinLayout const &rLayout, HDC hDC,
         const Rectangle* pRectToErase,
         Point* pPos, int* pGetNextGlypInfo) override;
-
-    //bool BindFont(HDC hDC) override;
-    //bool ReleaseFont() override;
-
-    //std::unique_ptr<Rectangle> GetGlyphInkBoxes(uint16_t * pGid, uint16_t * pGidEnd) const override;
-    //bool DrawGlyphs(const Point & origin, uint16_t * pGid, uint16_t * pGidEnd,
-    //    float * pAdvances, Point * pOffsets) override;
 };
 
 #if ENABLE_GRAPHITE_DWRITE
@@ -237,7 +222,6 @@ public:
     }
 
     inline bool Ready() const { return mpGdiInterop && mpRT; }
-
 
 private:
     static void CleanupModules();
@@ -417,7 +401,6 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
         return false;
     }
 
-#if 1
     // For now we assume DWrite is present and we won't bother with fallback paths.
     D2DWriteTextOutRenderer * pTxt = dynamic_cast<D2DWriteTextOutRenderer *>(&TextOutRenderer::get());
     if (!pTxt)
@@ -463,13 +446,6 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
     aChunk.mnBaselineOffset = -bounds.Top();
     aChunk.mnHeight = bounds.getHeight();
     aChunk.mbVertical = false;
-    /*
-        DWRITE_FONT_METRICS aFontMetrics;
-        pTxt->GetFontFace()->GetMetrics(&aFontMetrics);
-        aChunk.mnBaselineOffset = aFontMetrics.ascent * pTxt->GetEmHeight() / aFontMetrics.designUnitsPerEm;
-        aChunk.mnHeight = aChunk.mnBaselineOffset + aFontMetrics.descent * pTxt->GetEmHeight() / aFontMetrics.designUnitsPerEm;
-    */
-
 
     aChunk.maLeftOverhangs.resize(nCount);
     aChunk.maLocation.resize(nCount);
@@ -574,216 +550,7 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
     }
 
     pTxt->ReleaseFont();
-#else
-    SIZE aSize;
 
-    std::vector<ABC> aABC(nCount);
-    if (bRealGlyphIndices)
-    {
-        if (!GetTextExtentExPointI(hDC, aGlyphIndices.data(), nCount, 0, NULL, NULL, &aSize))
-        {
-            SAL_WARN("vcl.gdi", "GetTextExtentExPointI failed: " << WindowsErrorString(GetLastError()));
-            SelectObject(hDC, hOrigFont);
-            DeleteDC(hDC);
-            return false;
-        }
-        if (!GetCharABCWidthsI(hDC, 0, nCount, aGlyphIndices.data(), aABC.data()))
-        {
-            SAL_WARN("vcl.gdi", "GetCharABCWidthsI failed: " << WindowsErrorString(GetLastError()));
-            SelectObject(hDC, hOrigFont);
-            DeleteDC(hDC);
-            return false;
-        }
-    }
-    else
-    {
-        if (!GetTextExtentExPointW(hDC, reinterpret_cast<wchar_t *>(aGlyphIndices.data()), nCount, 0, NULL, NULL, &aSize))
-        {
-            SAL_WARN("vcl.gdi", "GetTextExtentExPoint failed: " << WindowsErrorString(GetLastError()));
-            SelectObject(hDC, hOrigFont);
-            DeleteDC(hDC);
-            return false;
-        }
-        if (!GetCharABCWidthsW(hDC, nGlyphIndex, nGlyphIndex+nCount-1, aABC.data()))
-        {
-            SAL_WARN("vcl.gdi", "GetCharABCWidths failed: " << WindowsErrorString(GetLastError()));
-            SelectObject(hDC, hOrigFont);
-            DeleteDC(hDC);
-            return false;
-        }
-    }
-
-    {
-        std::ostringstream sLine;
-        for (int i = 0; i < nCount; i++)
-            sLine << aABC[i].abcA << ":" << aABC[i].abcB << ":" << aABC[i].abcC << " ";
-        SAL_INFO("vcl.gdi.opengl", "ABC widths: " << sLine.str());
-    }
-
-    TEXTMETRICW aTextMetric;
-    if (!GetTextMetricsW(hDC, &aTextMetric))
-    {
-        SAL_WARN("vcl.gdi", "GetTextMetrics failed: " << WindowsErrorString(GetLastError()));
-        SelectObject(hDC, hOrigFont);
-        DeleteDC(hDC);
-        return false;
-    }
-    aChunk.mnBaselineOffset = aTextMetric.tmAscent;
-    aChunk.mnHeight = aTextMetric.tmHeight;
-
-    LOGFONTW aLogfont;
-    if (!GetObjectW(rLayout.mhFont, sizeof(aLogfont), &aLogfont))
-    {
-        SAL_WARN("vcl.gdi", "GetObject failed: " << WindowsErrorString(GetLastError()));
-        SelectObject(hDC, hOrigFont);
-        DeleteDC(hDC);
-        return false;
-    }
-
-    wchar_t sFaceName[200];
-    int nFaceNameLen = GetTextFaceW(hDC, SAL_N_ELEMENTS(sFaceName), sFaceName);
-    if (!nFaceNameLen)
-    {
-        SAL_WARN("vcl.gdi", "GetTextFace failed: " << WindowsErrorString(GetLastError()));
-        SelectObject(hDC, hOrigFont);
-        DeleteDC(hDC);
-        return false;
-    }
-
-    if (SelectObject(hDC, hOrigFont) == NULL)
-        SAL_WARN("vcl.gdi", "SelectObject failed: " << WindowsErrorString(GetLastError()));
-    if (!DeleteDC(hDC))
-        SAL_WARN("vcl.gdi", "DeleteDC failed: " << WindowsErrorString(GetLastError()));
-
-    // Offset between glyph positions
-    aChunk.maLeftOverhangs.resize(nCount);
-
-    // Try hard to avoid overlap as we want to be able to use
-    // individual rectangles for each glyph. The ABC widths don't
-    // take anti-aliasing into consideration. Let's hope that leaving
-    // "extra" space between glyphs will help.
-    std::vector<int> aDX(nCount);   // offsets between glyphs
-    std::vector<int> aEnds(nCount); // end of each glyph box
-    int totWidth = 0;
-    int lastOverhang = 0;
-    int lastBlackWidth = 0;
-    for (int i = 0; i < nCount; i++)
-    {
-        int overhang = aABC[i].abcA;
-        int blackWidth = aABC[i].abcB; // width of non-AA pixels
-        aChunk.maLeftOverhangs[i] = overhang;
-
-        if (i > 0)
-            aDX[i - 1] += aChunk.getExtraSpace() + lastOverhang - overhang + lastBlackWidth;
-
-        totWidth += blackWidth + aChunk.getExtraSpace();
-        aEnds[i] = totWidth;
-
-        lastOverhang = overhang;
-        lastBlackWidth = blackWidth;
-        // FIXME: for vertical text - this is completely horked I guess [!]
-        // or does A and C have a different meaning there that is
-        // consistent somehow ?
-    }
-
-    SAL_INFO("vcl.gdi.opengl", OUString(sFaceName, nFaceNameLen) <<
-        ": Escapement=" << aLogfont.lfEscapement <<
-        " Orientation=" << aLogfont.lfOrientation <<
-        " Ascent=" << aTextMetric.tmAscent <<
-        " InternalLeading=" << aTextMetric.tmInternalLeading <<
-        " Size=(" << aSize.cx << "," << aSize.cy << ") totWidth=" << totWidth);
-
-    // Leave extra space also at top and bottom
-    int nBitmapWidth, nBitmapHeight;
-    if (sFaceName[0] == '@')
-    {
-        nBitmapWidth = aSize.cy + aChunk.getExtraSpace();
-        nBitmapHeight = totWidth;
-        aChunk.mbVertical = true;
-    }
-    else
-    {
-        nBitmapWidth = totWidth;
-        nBitmapHeight = aSize.cy + aChunk.getExtraSpace();
-        aChunk.mbVertical = false;
-    }
-
-    // Don't even try to handle non-horizontal text
-    if (aChunk.mbVertical || aLogfont.lfEscapement != 0)
-        return false;
-
-    aChunk.maLocation.resize(nCount);
-    UINT nPos = 0;
-    for (int i = 0; i < nCount; i++)
-    {
-        // FIXME: really I don't get why 'vertical' make sany difference [!] what does it mean !?
-        if (aChunk.mbVertical)
-        {
-            aChunk.maLocation[i].Left() = 0;
-            aChunk.maLocation[i].Right() = nBitmapWidth;
-            aChunk.maLocation[i].Top() = nPos;
-            aChunk.maLocation[i].Bottom() = nPos + aDX[i] + aChunk.maLeftOverhangs[i];
-        }
-        else
-        {
-            aChunk.maLocation[i].Left() = nPos;
-            aChunk.maLocation[i].Right() = aEnds[i];
-            aChunk.maLocation[i].Top() = 0;
-            aChunk.maLocation[i].Bottom() = aSize.cy + aChunk.getExtraSpace();
-        }
-        nPos = aEnds[i];
-    }
-
-    OpenGLCompatibleDC aDC(rGraphics, 0, 0, nBitmapWidth, nBitmapHeight);
-
-    HFONT hNonAntialiasedFont = NULL;
-
-#ifdef DBG_UTIL
-    static bool bNoAntialias = (std::getenv("VCL_GLYPH_CACHING_HACK_NO_ANTIALIAS") != NULL);
-    if (bNoAntialias)
-    {
-        aLogfont.lfQuality = NONANTIALIASED_QUALITY;
-        hNonAntialiasedFont = CreateFontIndirectW(&aLogfont);
-        if (hNonAntialiasedFont == NULL)
-        {
-            SAL_WARN("vcl.gdi", "CreateFontIndirect failed: " << WindowsErrorString(GetLastError()));
-            return false;
-        }
-    }
-#endif
-
-    hOrigFont = SelectFont(aDC.getCompatibleHDC(), hNonAntialiasedFont != NULL ? hNonAntialiasedFont : rLayout.mhFont);
-    if (hOrigFont == NULL)
-    {
-        SAL_WARN("vcl.gdi", "SelectObject failed: " << WindowsErrorString(GetLastError()));
-        return false;
-    }
-
-    SetTextColor(aDC.getCompatibleHDC(), RGB(0, 0, 0));
-    SetBkColor(aDC.getCompatibleHDC(), RGB(255, 255, 255));
-
-    aDC.fill(MAKE_SALCOLOR(0xff, 0xff, 0xff));
-
-    int nY = aChunk.getExtraOffset();
-    int nX = nY;
-    if (aChunk.mbVertical)
-        nX += aDX[0];
-    else
-        nX -= aABC[0].abcA;
-    if (!ExtTextOutW(aDC.getCompatibleHDC(),
-                     nX, nY,
-                     bRealGlyphIndices ? ETO_GLYPH_INDEX : 0,
-                     NULL,
-                     reinterpret_cast<wchar_t *>(aGlyphIndices.data()), nCount,
-                     aDX.data()))
-    {
-        SAL_WARN("vcl.gdi", "ExtTextOutW failed: " << WindowsErrorString(GetLastError()));
-        SelectFont(aDC.getCompatibleHDC(), hOrigFont);
-        if (hNonAntialiasedFont != NULL)
-            DeleteObject(hNonAntialiasedFont);
-        return false;
-    }
-#endif
     aChunk.mpTexture = std::unique_ptr<OpenGLTexture>(aDC.getTexture());
 
     maOpenGLGlyphCache.insert(n, aChunk);
@@ -3937,27 +3704,6 @@ bool ExTextOutRenderer::operator ()(WinLayout const &rLayout, HDC hDC,
 
     return (pRectToErase && nGlyphs >= 1);
 }
-
-//bool ExTextOutRenderer::BindFont(HDC /*hDC*/)
-//{
-//    return false;
-//}
-//
-//bool ExTextOutRenderer::ReleaseFont()
-//{
-//    return false;
-//}
-//
-//std::unique_ptr<Rectangle> ExTextOutRenderer::GetGlyphInkBoxes(uint16_t * /*pGid*/, uint16_t * /*pGidEnd*/) const
-//{
-//    return nullptr;
-//}
-//
-//bool ExTextOutRenderer::DrawGlyphs(const Point & /*origin*/, uint16_t * /*pGid*/, uint16_t * /*pGidEnd*/,
-//    float * /*pAdvances*/, Point * /*pOffsets*/)
-//{
-//    return false;
-//}
 
 #if ENABLE_GRAPHITE_DWRITE
 
