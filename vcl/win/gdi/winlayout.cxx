@@ -425,6 +425,22 @@ bool WinFontInstance::AddChunkOfGlyphs(bool bRealGlyphIndices, int nGlyphIndex, 
 
     pTxt->BindFont(hDC);
 
+    // Bail for vertical text.
+    {
+        wchar_t sFaceName[200];
+        int nFaceNameLen = GetTextFaceW(hDC, SAL_N_ELEMENTS(sFaceName), sFaceName);
+        SelectObject(hDC, hOrigFont);
+        DeleteDC(hDC);
+
+        if (!nFaceNameLen)
+            SAL_WARN("vcl.gdi", "GetTextFace failed: " << WindowsErrorString(GetLastError()));
+
+        if (sFaceName[0] == '@')
+        {
+            pTxt->ReleaseFont();
+            return false;
+        }
+    }
     // Fetch the ink boxes and calculate the size of the atlas.
     if (!bRealGlyphIndices)
     {
